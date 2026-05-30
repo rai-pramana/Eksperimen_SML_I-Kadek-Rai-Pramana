@@ -8,7 +8,7 @@ name: Automated Preprocessing Pipeline
 
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths:
       - 'wine_quality_raw.csv'
       - 'preprocessing/**'
