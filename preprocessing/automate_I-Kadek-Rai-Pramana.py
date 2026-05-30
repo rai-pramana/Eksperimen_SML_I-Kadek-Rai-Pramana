@@ -6,6 +6,7 @@ menjadi pipeline otomatis yang menghasilkan data siap latih.
 
 Author: I Kadek Rai Pramana
 Dataset: Wine Quality (Red) - UCI ML Repository
+Version: 1.0
 """
 
 import pandas as pd
