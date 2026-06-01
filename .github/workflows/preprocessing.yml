@@ -1,8 +1,8 @@
 # Preprocessing Automation Workflow
 # Author: I Kadek Rai Pramana
 #
-# Workflow ini melakukan preprocessing otomatis pada dataset Wine Quality
-# setiap kali trigger dipantik (push ke main).
+# Workflow ini melakukan preprocessing otomatis pada dataset Heart Disease
+# setiap kali trigger dipantik (push ke master).
 
 name: Automated Preprocessing Pipeline
 
@@ -10,7 +10,7 @@ on:
   push:
     branches: [master]
     paths:
-      - 'wine_quality_raw.csv'
+      - 'heart_disease_raw.csv'
       - 'preprocessing/**'
   workflow_dispatch:  # Manual trigger
 
@@ -39,14 +39,14 @@ jobs:
       - name: Run Automated Preprocessing
         run: |
           cd preprocessing
-          python automate_I-Kadek-Rai-Pramana.py --input ../wine_quality_raw.csv --output wine_quality_preprocessing
+          python automate_I-Kadek-Rai-Pramana.py
 
       # Step 5: Upload Preprocessed Dataset
       - name: Upload Preprocessed Dataset
         uses: actions/upload-artifact@v4
         with:
           name: preprocessed-dataset
-          path: preprocessing/wine_quality_preprocessing/
+          path: preprocessing/heart_disease_preprocessing/
           retention-days: 30
 
       # Step 6: Commit preprocessed data back to repo
@@ -54,6 +54,6 @@ jobs:
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add preprocessing/wine_quality_preprocessing/
+          git add preprocessing/heart_disease_preprocessing/
           git diff --staged --quiet || git commit -m "Auto: Update preprocessed dataset"
           git push || echo "Nothing to push"
