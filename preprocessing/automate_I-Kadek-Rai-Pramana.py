@@ -1,246 +1,197 @@
 """
-Automated Preprocessing Script for Wine Quality Dataset
-========================================================
-Script ini mengkonversi langkah-langkah preprocessing dari notebook eksperimen
-menjadi pipeline otomatis yang menghasilkan data siap latih.
+Automated Preprocessing Script - Heart Disease Dataset
+=======================================================
+Script untuk melakukan preprocessing data Heart Disease secara otomatis.
+Menghasilkan data yang siap digunakan untuk pelatihan model.
 
 Author: I Kadek Rai Pramana
-Dataset: Wine Quality (Red) - UCI ML Repository
-Version: 1.0
+Version: 2.0
 """
 
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-import os
-import argparse
 import joblib
+import os
+import warnings
+
+warnings.filterwarnings('ignore')
 
 
-def load_data(filepath: str) -> pd.DataFrame:
-    """
-    Load raw wine quality dataset dari file CSV.
+def load_data(filepath: str = None) -> pd.DataFrame:
+    """Load raw Heart Disease dataset."""
+    if filepath is None:
+        # Cari file di beberapa lokasi
+        possible_paths = [
+            'heart_disease_raw.csv',
+            '../heart_disease_raw.csv',
+            '../../heart_disease_raw.csv',
+        ]
+        for p in possible_paths:
+            if os.path.exists(p):
+                filepath = p
+                break
 
-    Args:
-        filepath: Path ke file CSV raw dataset.
+    if filepath is None or not os.path.exists(filepath):
+        # Download dari UCI jika tidak ada
+        print("[INFO] Downloading Heart Disease dataset from UCI...")
+        url = 'https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.cleveland.data'
+        cols = ['age', 'sex', 'cp', 'trestbps', 'chol', 'fbs', 'restecg',
+                'thalach', 'exang', 'oldpeak', 'slope', 'ca', 'thal', 'target']
+        df = pd.read_csv(url, names=cols, na_values='?')
+    else:
+        df = pd.read_csv(filepath)
 
-    Returns:
-        DataFrame berisi data mentah wine quality.
-    """
-    print(f"[INFO] Loading data from: {filepath}")
-    df = pd.read_csv(filepath, sep=';')
     print(f"[INFO] Data loaded: {df.shape[0]} rows, {df.shape[1]} columns")
     return df
 
 
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Membersihkan data: handle missing values dan duplicates.
+    """Bersihkan data: handle missing values dan duplikat."""
+    print(f"\n[STEP 1] Cleaning Data...")
+    initial_rows = len(df)
 
-    Args:
-        df: DataFrame mentah.
+    # Drop duplicates
+    df = df.drop_duplicates()
+    print(f"  - Duplicates removed: {initial_rows - len(df)}")
 
-    Returns:
-        DataFrame yang sudah dibersihkan.
-    """
-    initial_shape = df.shape[0]
+    # Handle missing values
+    missing = df.isnull().sum()
+    if missing.sum() > 0:
+        print(f"  - Missing values found: {missing[missing > 0].to_dict()}")
+        # Fill numeric columns with median
+        for col in df.columns:
+            if df[col].isnull().any():
+                median_val = df[col].median()
+                df[col].fillna(median_val, inplace=True)
+                print(f"    Filled '{col}' with median: {median_val}")
+    else:
+        print(f"  - No missing values found")
 
-    # Cek dan hapus missing values
-    missing_count = df.isnull().sum().sum()
-    if missing_count > 0:
-        print(f"[INFO] Found {missing_count} missing values, dropping rows...")
-        df = df.dropna()
-
-    # Hapus duplikat
-    duplicate_count = df.duplicated().sum()
-    if duplicate_count > 0:
-        print(f"[INFO] Found {duplicate_count} duplicate rows, removing...")
-        df = df.drop_duplicates()
-
-    final_shape = df.shape[0]
-    print(f"[INFO] Cleaning: {initial_shape} -> {final_shape} rows ({initial_shape - final_shape} removed)")
-
-    return df.reset_index(drop=True)
-
-
-def handle_outliers(df: pd.DataFrame, columns: list = None) -> pd.DataFrame:
-    """
-    Handle outliers menggunakan metode IQR (Interquartile Range).
-
-    Args:
-        df: DataFrame input.
-        columns: List kolom yang akan di-handle outliersnya.
-
-    Returns:
-        DataFrame tanpa outliers.
-    """
-    if columns is None:
-        columns = df.select_dtypes(include=[np.number]).columns.tolist()
-        # Exclude target column
-        columns = [c for c in columns if c != 'quality']
-
-    initial_shape = df.shape[0]
-
-    for col in columns:
-        Q1 = df[col].quantile(0.25)
-        Q3 = df[col].quantile(0.75)
-        IQR = Q3 - Q1
-        lower_bound = Q1 - 1.5 * IQR
-        upper_bound = Q3 + 1.5 * IQR
-        df = df[(df[col] >= lower_bound) & (df[col] <= upper_bound)]
-
-    final_shape = df.shape[0]
-    print(f"[INFO] Outlier removal: {initial_shape} -> {final_shape} rows ({initial_shape - final_shape} removed)")
-
-    return df.reset_index(drop=True)
-
-
-def feature_engineering(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Feature engineering: transformasi target variable menjadi binary classification.
-    - quality >= 7 -> 1 (good/high quality)
-    - quality < 7  -> 0 (not good/standard quality)
-
-    Args:
-        df: DataFrame input.
-
-    Returns:
-        DataFrame dengan kolom target baru 'quality_label'.
-    """
-    df = df.copy()
-    df['quality_label'] = (df['quality'] >= 7).astype(int)
-
-    class_dist = df['quality_label'].value_counts()
-    print(f"[INFO] Target distribution:")
-    print(f"       - Not Good (0): {class_dist.get(0, 0)}")
-    print(f"       - Good (1): {class_dist.get(1, 0)}")
-
+    print(f"  - Rows after cleaning: {len(df)}")
     return df
 
 
-def preprocess_pipeline(df: pd.DataFrame, output_dir: str, test_size: float = 0.2, random_state: int = 42):
-    """
-    Pipeline preprocessing lengkap:
-    1. Cleaning data
-    2. Handle outliers
-    3. Feature engineering
-    4. Train-test split
-    5. Feature scaling
-    6. Simpan hasil
+def remove_outliers(df: pd.DataFrame, factor: float = 1.5) -> pd.DataFrame:
+    """Hapus outlier menggunakan metode IQR pada kolom numerik."""
+    print(f"\n[STEP 2] Removing Outliers (IQR method, factor={factor})...")
+    initial_rows = len(df)
 
-    Args:
-        df: DataFrame mentah.
-        output_dir: Direktori output untuk menyimpan data preprocessing.
-        test_size: Proporsi data test.
-        random_state: Random seed untuk reproducibility.
+    numeric_cols = ['age', 'trestbps', 'chol', 'thalach', 'oldpeak']
 
-    Returns:
-        Tuple (X_train, X_test, y_train, y_test, scaler)
-    """
-    print("\n" + "=" * 60)
-    print("STARTING PREPROCESSING PIPELINE")
-    print("=" * 60)
+    for col in numeric_cols:
+        Q1 = df[col].quantile(0.25)
+        Q3 = df[col].quantile(0.75)
+        IQR = Q3 - Q1
+        lower = Q1 - factor * IQR
+        upper = Q3 + factor * IQR
+        before = len(df)
+        df = df[(df[col] >= lower) & (df[col] <= upper)]
+        removed = before - len(df)
+        if removed > 0:
+            print(f"  - '{col}': removed {removed} outliers (range: {lower:.1f} - {upper:.1f})")
 
-    # Step 1: Clean data
-    print("\n[STEP 1] Cleaning data...")
-    df = clean_data(df)
+    print(f"  - Total outliers removed: {initial_rows - len(df)}")
+    print(f"  - Rows after outlier removal: {len(df)}")
+    return df
 
-    # Step 2: Handle outliers
-    print("\n[STEP 2] Handling outliers...")
-    df = handle_outliers(df)
 
-    # Step 3: Feature engineering
-    print("\n[STEP 3] Feature engineering...")
-    df = feature_engineering(df)
+def create_binary_target(df: pd.DataFrame) -> pd.DataFrame:
+    """Konversi target multi-class menjadi binary classification."""
+    print(f"\n[STEP 3] Creating Binary Target...")
+    # Original target: 0 = no disease, 1-4 = disease
+    # Binary: 0 = no disease, 1 = has disease
+    df['heart_disease'] = (df['target'] >= 1).astype(int)
+    df = df.drop('target', axis=1)
 
-    # Step 4: Separate features and target
-    print("\n[STEP 4] Splitting features and target...")
-    feature_cols = [col for col in df.columns if col not in ['quality', 'quality_label']]
-    X = df[feature_cols]
-    y = df['quality_label']
+    print(f"  - Class distribution:")
+    print(f"    No Disease (0): {(df['heart_disease'] == 0).sum()}")
+    print(f"    Has Disease (1): {(df['heart_disease'] == 1).sum()}")
+    return df
 
-    # Step 5: Train-test split (stratified)
-    print("\n[STEP 5] Train-test split...")
+
+def scale_and_split(df: pd.DataFrame, test_size: float = 0.2,
+                    output_dir: str = 'heart_disease_preprocessing') -> dict:
+    """Lakukan scaling dan split data."""
+    print(f"\n[STEP 4] Scaling & Splitting Data...")
+
+    X = df.drop('heart_disease', axis=1)
+    y = df['heart_disease']
+
+    # Train-test split dengan stratify
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=test_size, random_state=random_state, stratify=y
+        X, y, test_size=test_size, random_state=42, stratify=y
     )
-    print(f"       Train: {X_train.shape[0]} samples")
-    print(f"       Test:  {X_test.shape[0]} samples")
+    print(f"  - Train: {X_train.shape[0]} samples")
+    print(f"  - Test: {X_test.shape[0]} samples")
 
-    # Step 6: Feature scaling
-    print("\n[STEP 6] Feature scaling (StandardScaler)...")
+    # Scaling
     scaler = StandardScaler()
     X_train_scaled = pd.DataFrame(
         scaler.fit_transform(X_train),
-        columns=feature_cols,
-        index=X_train.index
+        columns=X.columns, index=X_train.index
     )
     X_test_scaled = pd.DataFrame(
         scaler.transform(X_test),
-        columns=feature_cols,
-        index=X_test.index
+        columns=X.columns, index=X_test.index
     )
 
-    # Step 7: Save preprocessed data
-    print(f"\n[STEP 7] Saving preprocessed data to: {output_dir}")
+    # Gabungkan kembali dengan target
+    train_df = X_train_scaled.copy()
+    train_df['heart_disease'] = y_train.values
+    test_df = X_test_scaled.copy()
+    test_df['heart_disease'] = y_test.values
+
+    # Simpan
     os.makedirs(output_dir, exist_ok=True)
+    train_df.to_csv(os.path.join(output_dir, 'train.csv'), index=False)
+    test_df.to_csv(os.path.join(output_dir, 'test.csv'), index=False)
+    joblib.dump(scaler, os.path.join(output_dir, 'scaler.pkl'))
 
-    train_df = pd.concat([X_train_scaled.reset_index(drop=True),
-                          y_train.reset_index(drop=True)], axis=1)
-    test_df = pd.concat([X_test_scaled.reset_index(drop=True),
-                         y_test.reset_index(drop=True)], axis=1)
+    print(f"\n[INFO] Files saved to '{output_dir}/':")
+    print(f"  - train.csv ({len(train_df)} rows)")
+    print(f"  - test.csv ({len(test_df)} rows)")
+    print(f"  - scaler.pkl")
 
-    train_path = os.path.join(output_dir, 'train.csv')
-    test_path = os.path.join(output_dir, 'test.csv')
-    scaler_path = os.path.join(output_dir, 'scaler.pkl')
+    return {
+        'X_train': X_train_scaled, 'X_test': X_test_scaled,
+        'y_train': y_train, 'y_test': y_test,
+        'scaler': scaler
+    }
 
-    train_df.to_csv(train_path, index=False)
-    test_df.to_csv(test_path, index=False)
-    joblib.dump(scaler, scaler_path)
 
-    print(f"       Train saved: {train_df.shape} -> {train_path}")
-    print(f"       Test saved:  {test_df.shape} -> {test_path}")
-    print(f"       Scaler saved: {scaler_path}")
-
-    print("\n" + "=" * 60)
-    print("PREPROCESSING PIPELINE COMPLETED SUCCESSFULLY")
+def preprocess_pipeline(filepath: str = None,
+                        output_dir: str = 'heart_disease_preprocessing'):
+    """Jalankan seluruh pipeline preprocessing."""
+    print("=" * 60)
+    print("HEART DISEASE PREPROCESSING PIPELINE")
     print("=" * 60)
 
-    return X_train_scaled, X_test_scaled, y_train, y_test, scaler
+    # Step 1: Load
+    df = load_data(filepath)
 
+    # Step 2: Clean
+    df = clean_data(df)
 
-def main():
-    """Main entry point untuk menjalankan preprocessing secara otomatis."""
-    parser = argparse.ArgumentParser(
-        description='Automated preprocessing for Wine Quality dataset'
-    )
-    parser.add_argument(
-        '--input', type=str,
-        default=os.path.join(os.path.dirname(__file__), '..', 'wine_quality_raw.csv'),
-        help='Path ke file raw dataset (default: ../wine_quality_raw.csv)'
-    )
-    parser.add_argument(
-        '--output', type=str,
-        default=os.path.join(os.path.dirname(__file__), 'wine_quality_preprocessing'),
-        help='Direktori output untuk data preprocessing'
-    )
-    parser.add_argument(
-        '--test-size', type=float, default=0.2,
-        help='Proporsi data test (default: 0.2)'
-    )
-    parser.add_argument(
-        '--random-state', type=int, default=42,
-        help='Random seed (default: 42)'
-    )
-    args = parser.parse_args()
+    # Step 3: Remove Outliers
+    df = remove_outliers(df)
 
-    # Load data
-    df = load_data(args.input)
+    # Step 4: Create Binary Target
+    df = create_binary_target(df)
 
-    # Run preprocessing pipeline
-    preprocess_pipeline(df, args.output, args.test_size, args.random_state)
+    # Step 5: Scale & Split
+    result = scale_and_split(df, output_dir=output_dir)
+
+    print("\n" + "=" * 60)
+    print("PREPROCESSING COMPLETE!")
+    print("=" * 60)
+
+    return result
 
 
 if __name__ == '__main__':
-    main()
+    output = os.path.join('preprocessing', 'heart_disease_preprocessing') \
+        if os.path.exists('preprocessing') \
+        else 'heart_disease_preprocessing'
+    preprocess_pipeline(output_dir=output)
